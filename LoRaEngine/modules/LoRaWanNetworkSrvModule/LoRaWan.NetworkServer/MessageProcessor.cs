@@ -131,7 +131,7 @@ namespace LoRaWan.NetworkServer
                 {
                     Logger.Log(ConversionHelper.ByteArrayToString(devAddr), $"device is not from our network, ignoring message", LogLevel.Information);
                     return null;
-                }
+                }                
 
                 // Add context to logger
                 processLogger.SetDevEUI(loRaDevice.DevEUI);

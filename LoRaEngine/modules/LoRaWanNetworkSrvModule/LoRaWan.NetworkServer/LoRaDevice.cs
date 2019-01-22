@@ -254,10 +254,74 @@ namespace LoRaWan.NetworkServer
             return succeeded;
         }
 
+        
+
         public void Dispose()
         {
             this.loRaDeviceClient?.Dispose();
             GC.SuppressFinalize(this);
         }
+
+        volatile LoRaDeviceRequest runningRequest;
+        readonly Queue<LoRaDeviceRequest> queuedRequests = new Queue<LoRaDeviceRequest>();
+
+
+        public void QueueRequest(LoRaDeviceRequest request)
+        {
+            // Access to runningRequest and queuedRequests must be 
+            // thread safe
+            lock (this)
+            {
+                if (this.runningRequest == null)
+                {
+                    StartNextRequest(request);
+                }
+                else
+                {
+                    queuedRequests.Enqueue(request);
+                }
+            }
+        }
+
+        private void OnRequestCompleted(Task task)
+        {
+            // Access to runningRequest and queuedRequests must be 
+            // thread safe
+            lock (this)
+            {
+                this.runningRequest = null;
+                if (this.queuedRequests.TryDequeue(out var nextRequest))
+                {
+                    StartNextRequest(nextRequest);
+                }
+            }
+        }
+
+        void StartNextRequest(LoRaDeviceRequest msg)
+        {
+            this.runningRequest = msg;
+
+            this.ProcessRequest(msg)
+                .ContinueWith(OnRequestCompleted, TaskContinuationOptions.ExecuteSynchronously) // TODO: verify if it is better
+                .ConfigureAwait(false);
+        }
+
+        
+        
+        Task ProcessRequest(LoRaDeviceRequest request)
+        {
+            return Task.FromResult(0);
+        }
+    }
+
+    public abstract class LoRaDeviceRequest
+    {
+        public LoRaOperationTimeWatcher OperationTimer { get; }
+    }
+
+    public class LoRaPayloadRequest : LoRaDeviceRequest
+    {
+        public LoRaTools.LoRaMessage.LoRaPayloadData LoRaPayloadData { get; }
+        
     }
 }

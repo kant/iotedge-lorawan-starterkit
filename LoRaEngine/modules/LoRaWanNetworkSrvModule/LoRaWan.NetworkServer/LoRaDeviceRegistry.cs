@@ -67,6 +67,10 @@ namespace LoRaWan.NetworkServer
             });
         }
 
+        DeviceForPayloadLoader GetOrCreateDeviceForPayloadLoader(string devAddr) => null;
+
+        void RemoveDeviceByDevAddrLoader(DeviceForPayloadLoader loader) { }
+
         /// <summary>
         /// Finds a device based on the <see cref="LoRaPayloadData"/>
         /// </summary>
@@ -74,6 +78,52 @@ namespace LoRaWan.NetworkServer
         /// <returns></returns>
         public async Task<LoRaDevice> GetDeviceForPayloadAsync(LoRaPayloadData loraPayload)
         {
+            var devAddr = ConversionHelper.ByteArrayToString(loraPayload.DevAddr);
+            var devicesMatchingDevAddr = this.InternalGetCachedDevicesForDevAddr(devAddr);
+
+            // If already in cache, return quickly
+            if (devicesMatchingDevAddr.Count > 0)
+            {
+                var cachedMatchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => IsValidDeviceForPayload(x, loraPayload, logError: false) && x.IsOurDevice);
+                if (cachedMatchingDevice != null)
+                {
+                    Logger.Log(cachedMatchingDevice.DevEUI, "device in cache", Logger.LoggingLevel.Full);
+                    return cachedMatchingDevice;
+                }
+            }
+
+            var deviceLoader = GetOrCreateDeviceForPayloadLoader(devAddr);
+            // Problem:
+            // How to guarantee that requests will be processed in order of arrival?
+            // Option A:
+            //   Add items to the LoRaDevice queue as soon when it gets created
+            //   Cons:
+            //     - Race condition in being complete and receiving more requests
+            //     - Cannot wait anymore for return since multiple requests can be pending. Need a way to answer from the handler
+
+            await deviceLoader.WaitComplete();
+
+            // try now with updated cache
+            var matchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => IsValidDeviceForPayload(x, loraPayload, logError: true));
+            if (matchingDevice != null && !matchingDevice.IsOurDevice)
+            {
+                Logger.Log(matchingDevice.DevEUI ?? devAddr, $"device is not our device, ignore message", Logger.LoggingLevel.Info);
+                matchingDevice = null;
+            }
+
+            RemoveDeviceByDevAddrLoader(deviceLoader);
+
+            return matchingDevice;
+        }
+
+
+        /// <summary>
+        /// Finds a device based on the <see cref="LoRaPayloadData"/>
+        /// </summary>
+        /// <param name="loraPayload"></param>
+        /// <returns></returns>
+        public async Task<LoRaDevice> GetDeviceForPayloadAsync_Old(LoRaPayloadData loraPayload)
+        {            
             var devAddr = ConversionHelper.ByteArrayToString(loraPayload.DevAddr.ToArray());
             var devicesMatchingDevAddr = this.InternalGetCachedDevicesForDevAddr(devAddr);
 
