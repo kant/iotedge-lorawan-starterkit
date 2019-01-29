@@ -92,7 +92,6 @@ namespace LoRaWan.NetworkServer
                         });
                     }
                 }
-
             }
         }
 
@@ -142,11 +141,11 @@ namespace LoRaWan.NetworkServer
         }
 
 
-        List<LoRaPayloadRequest> queuedRequests = new List<LoRaPayloadRequest>();
+        List<LoRaDeviceRequest> queuedRequests = new List<LoRaDeviceRequest>();
 
         public Task<bool> TryQueuePayload(LoRaPayloadData loraPayload)
         {
-            queuedRequests.Add(new LoRaPayloadRequest());
+            queuedRequests.Add(new LoRaDeviceRequest());
             return Task.FromResult(true);
         }
     }
