@@ -13,7 +13,7 @@ namespace LoRaWan.NetworkServer.Test
     using Microsoft.Extensions.Caching.Memory;
     using Moq;
     using Xunit;
-
+/*
     // End to end tests without external dependencies (IoT Hub, Service Facade Function)
     // Multi gateway specifc scenarios
     public class MessageProcessor_End2End_NoDep_MultiGateway_Tests : MessageProcessorTestBase
@@ -286,4 +286,5 @@ namespace LoRaWan.NetworkServer.Test
             loRaDeviceApi.VerifyAll();
         }
     }
+*/
 }

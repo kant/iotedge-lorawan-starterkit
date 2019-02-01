@@ -14,6 +14,7 @@ namespace LoRaWan.NetworkServer.Test
     using Moq;
     using Xunit;
 
+/*
     // End to end tests without external dependencies (IoT Hub, Service Facade Function)
     public class MessageProcessor_End2End_NoDep_Join_Slow_Get_Twin_Tests : MessageProcessorTestBase
     {
@@ -129,4 +130,5 @@ namespace LoRaWan.NetworkServer.Test
             loRaDeviceApi.VerifyAll();
         }
     }
+*/
 }

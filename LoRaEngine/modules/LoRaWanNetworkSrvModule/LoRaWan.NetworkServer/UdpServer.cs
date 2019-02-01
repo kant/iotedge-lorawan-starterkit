@@ -27,12 +27,12 @@ namespace LoRaWan.NetworkServer
     /// <summary>
     /// Defines udp Server communicating with packet forwarder
     /// </summary>
-    public class UdpServer : IDisposable
+    public class UdpServer : IDisposable, IPacketForwarder
     {
         const int PORT = 1680;
         private readonly NetworkServerConfiguration configuration;
 
-        private readonly MessageProcessor messageProcessorV2;
+        private readonly MessageProcessor messageProcessor;
         private readonly LoRaDeviceAPIServiceBase loRaDeviceAPIService;
         private readonly ILoRaDeviceRegistry loRaDeviceRegistry;
         readonly SemaphoreSlim randomLock = new SemaphoreSlim(1);
@@ -40,6 +40,7 @@ namespace LoRaWan.NetworkServer
 
         ModuleClient ioTHubModuleClient;
         private volatile int pullAckRemoteLoRaAggregatorPort = 0;
+        private volatile string pullAckRemoteLoRaAddress = null;
         UdpClient udpClient;
 
         private async Task<byte[]> GetTokenAsync()
@@ -78,7 +79,7 @@ namespace LoRaWan.NetworkServer
             ILoRaDeviceRegistry loRaDeviceRegistry)
         {
             this.configuration = configuration;
-            this.messageProcessorV2 = messageProcessor;
+            this.messageProcessor = messageProcessor;
             this.loRaDeviceAPIService = loRaDeviceAPIService;
             this.loRaDeviceRegistry = loRaDeviceRegistry;
         }
@@ -119,6 +120,7 @@ namespace LoRaWan.NetworkServer
                         if (this.pullAckRemoteLoRaAggregatorPort == 0)
                         {
                             this.pullAckRemoteLoRaAggregatorPort = receivedResults.RemoteEndPoint.Port;
+                            this.pullAckRemoteLoRaAddress = receivedResults.RemoteEndPoint.Address.ToString();
                         }
 
                         this.SendAcknowledgementMessage(receivedResults, (int)PhysicalIdentifier.PULL_ACK, receivedResults.RemoteEndPoint);
@@ -187,7 +189,8 @@ namespace LoRaWan.NetworkServer
         {
             try
             {
-                var downstreamMessage = await this.messageProcessorV2.ProcessMessageAsync(rxpk, startTimeProcessing);
+                var req = new LoRaRequest(rxpk, this, startTimeProcessing);
+                var downstreamMessage = await this.messageProcessor.ProcessRequestAsync(req);
                 if (downstreamMessage?.Txpk != null)
                 {
                     var jsonMsg = JsonConvert.SerializeObject(downstreamMessage);
@@ -372,6 +375,36 @@ namespace LoRaWan.NetworkServer
         {
             this.Dispose(true);
             GC.SuppressFinalize(this);
+        }
+
+        async Task IPacketForwarder.SendDownstreamAsync(DownlinkPktFwdMessage downstreamMessage)
+        {
+            try
+            {
+                if (downstreamMessage?.Txpk != null)
+                {
+                    var jsonMsg = JsonConvert.SerializeObject(downstreamMessage);
+                    var messageByte = Encoding.UTF8.GetBytes(jsonMsg);
+                    var token = await this.GetTokenAsync();
+                    PhysicalPayload pyld = new PhysicalPayload(token, PhysicalIdentifier.PULL_RESP, messageByte);
+                    if (this.pullAckRemoteLoRaAggregatorPort != 0)
+                    {
+                        await this.UdpSendMessage(pyld.GetMessage(), this.pullAckRemoteLoRaAddress, this.pullAckRemoteLoRaAggregatorPort);
+                        Logger.Log("UDP", $"message sent with ID {ConversionHelper.ByteArrayToString(token)}", LogLevel.Information);
+                    }
+                    else
+                    {
+                        Logger.Log(
+                            "UDP",
+                            "Waiting for first pull_ack message from the packet forwarder. The received message was discarded as the network server is still starting.",
+                            LogLevel.Debug);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error processing the message {ex.Message}, {ex.StackTrace}", LogLevel.Error);
+            }
         }
     }
 }

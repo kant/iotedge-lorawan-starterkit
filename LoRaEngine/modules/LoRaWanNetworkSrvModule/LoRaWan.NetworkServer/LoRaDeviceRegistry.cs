@@ -67,164 +67,58 @@ namespace LoRaWan.NetworkServer
             });
         }
 
-        DeviceForPayloadLoader GetOrCreateDeviceForPayloadLoader(string devAddr) => null;
-
-        void RemoveDeviceByDevAddrLoader(DeviceForPayloadLoader loader) { }
-
-        /// <summary>
-        /// Finds a device based on the <see cref="LoRaPayloadData"/>
-        /// </summary>
-        /// <param name="loraPayload"></param>
-        /// <returns></returns>
-        public async Task<LoRaDevice> GetDeviceForPayloadAsync(LoRaPayloadData loraPayload)
+        DeviceLoaderSynchronizer GetOrCreateLoadingDevicesRequestQueue(string devAddr)
         {
-            var devAddr = ConversionHelper.ByteArrayToString(loraPayload.DevAddr);
-            var devicesMatchingDevAddr = this.InternalGetCachedDevicesForDevAddr(devAddr);
-
-            // If already in cache, return quickly
-            if (devicesMatchingDevAddr.Count > 0)
-            {
-                var cachedMatchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => IsValidDeviceForPayload(x, loraPayload, logError: false) && x.IsOurDevice);
-                if (cachedMatchingDevice != null)
+            return this.cache.GetOrCreate<DeviceLoaderSynchronizer>(
+                $"devaddrloader:{devAddr}",
+                (ce) =>
                 {
-                    Logger.Log(cachedMatchingDevice.DevEUI, "device in cache", Logger.LoggingLevel.Full);
-                    return cachedMatchingDevice;
-                }
-            }
+                    var cts = new CancellationTokenSource();
+                    ce.ExpirationTokens.Add(new CancellationChangeToken(cts.Token));
 
-            var deviceLoader = GetOrCreateDeviceForPayloadLoader(devAddr);
-            // Problem:
-            // How to guarantee that requests will be processed in order of arrival?
-            // Option A:
-            //   Add items to the LoRaDevice queue as soon when it gets created
-            //   Cons:
-            //     - Race condition in being complete and receiving more requests
-            //     - Cannot wait anymore for return since multiple requests can be pending. Need a way to answer from the handler
-
-            await deviceLoader.WaitComplete();
-
-            // try now with updated cache
-            var matchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => IsValidDeviceForPayload(x, loraPayload, logError: true));
-            if (matchingDevice != null && !matchingDevice.IsOurDevice)
-            {
-                Logger.Log(matchingDevice.DevEUI ?? devAddr, $"device is not our device, ignore message", Logger.LoggingLevel.Info);
-                matchingDevice = null;
-            }
-
-            RemoveDeviceByDevAddrLoader(deviceLoader);
-
-            return matchingDevice;
-        }
-
-
-        /// <summary>
-        /// Finds a device based on the <see cref="LoRaPayloadData"/>
-        /// </summary>
-        /// <param name="loraPayload"></param>
-        /// <returns></returns>
-        public async Task<LoRaDevice> GetDeviceForPayloadAsync_Old(LoRaPayloadData loraPayload)
-        {            
-            var devAddr = ConversionHelper.ByteArrayToString(loraPayload.DevAddr.ToArray());
-            var devicesMatchingDevAddr = this.InternalGetCachedDevicesForDevAddr(devAddr);
-
-            // If already in cache, return quickly
-            if (devicesMatchingDevAddr.Count > 0)
-            {
-                var matchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => this.IsValidDeviceForPayload(x, loraPayload, logError: false));
-                if (matchingDevice != null)
-                {
-                    if (matchingDevice.IsOurDevice)
-                    {
-                        Logger.Log(matchingDevice.DevEUI, "device in cache", LogLevel.Debug);
-                        return matchingDevice;
-                    }
-                    else
-                    {
-                        Logger.Log(matchingDevice.DevEUI ?? devAddr, $"device is not our device, ignore message", LogLevel.Information);
-                        return null;
-                    }
-                }
-            }
-
-            // If device was not found, search in the device API, updating local cache
-            Logger.Log(devAddr, "querying the registry for device", LogLevel.Information);
-
-            SearchDevicesResult searchDeviceResult = null;
-            try
-            {
-                searchDeviceResult = await this.loRaDeviceAPIService.SearchByDevAddrAsync(devAddr);
-            }
-            catch (Exception ex)
-            {
-                Logger.Log(devAddr, $"Error searching device for payload. {ex.Message}", LogLevel.Error);
-                return null;
-            }
-
-            if (searchDeviceResult?.Devices != null)
-            {
-                foreach (var foundDevice in searchDeviceResult.Devices)
-                {
-                    var loRaDevice = this.deviceFactory.Create(foundDevice);
-                    if (loRaDevice != null && devicesMatchingDevAddr.TryAdd(loRaDevice.DevEUI, loRaDevice))
-                    {
-                        try
+                    var loader = new DeviceLoaderSynchronizer(
+                        devAddr,
+                        this.loRaDeviceAPIService,
+                        this.deviceFactory,
+                        this.InternalGetCachedDevicesForDevAddr(devAddr),
+                        this.initializers,
+                        this.configuration,
+                        (t) =>
                         {
-                            // Calling initialize async here to avoid making async calls in the concurrent dictionary
-                            // Since only one device will be added, we guarantee that initialization only happens once
-                            if (await loRaDevice.InitializeAsync())
+                            if (t.IsCompletedSuccessfully)
                             {
-                                loRaDevice.IsOurDevice = string.IsNullOrEmpty(loRaDevice.GatewayID) || string.Equals(loRaDevice.GatewayID, this.configuration.GatewayID, StringComparison.InvariantCultureIgnoreCase);
-
-                                // once added, call initializers
-                                foreach (var initializer in this.initializers)
-                                    initializer.Initialize(loRaDevice);
-
-                                if (loRaDevice.DevEUI != null)
-                                    Logger.Log(loRaDevice.DevEUI, "device added to cache", LogLevel.Debug);
-
-                                // TODO: stop if we found the matching device?
-                                // If we continue we can cache for later usage, but then do it in a new thread
-                                if (this.IsValidDeviceForPayload(loRaDevice, loraPayload, logError: false))
-                                {
-                                    if (!loRaDevice.IsOurDevice)
-                                    {
-                                        Logger.Log(loRaDevice.DevEUI ?? devAddr, $"device is not our device, ignore message", LogLevel.Information);
-                                        return null;
-                                    }
-
-                                    return loRaDevice;
-                                }
+                                // remove from cache after 30 seconds
+                                cts.CancelAfter(TimeSpan.FromSeconds(30));
                             }
                             else
                             {
-                                // could not initialize device
-                                // remove it from cache since it does not have required properties
-                                devicesMatchingDevAddr.TryRemove(loRaDevice.DevEUI, out _);
+                                // remove from cache now
+                                cts.Cancel();
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            // problem initializing the device (get twin timeout, etc)
-                            // remove it from the cache
-                            Logger.Log(loRaDevice.DevEUI ?? devAddr, $"Error initializing device {loRaDevice.DevEUI}. {ex.Message}", LogLevel.Error);
+                        });
 
-                            devicesMatchingDevAddr.TryRemove(loRaDevice.DevEUI, out _);
-                        }
-                    }
-                }
+                    return loader;
+                });
+        }
 
-                // try now with updated cache
-                var matchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => this.IsValidDeviceForPayload(x, loraPayload, logError: true));
-                if (matchingDevice != null && !matchingDevice.IsOurDevice)
+        public void QueueRequest(LoRaRequestContext requestContext)
+        {
+            var devAddr = ConversionHelper.ByteArrayToString(requestContext.Request.Payload.DevAddr);
+            var devicesMatchingDevAddr = this.InternalGetCachedDevicesForDevAddr(devAddr);
+
+            // If already in cache, return quickly
+            if (devicesMatchingDevAddr.Count > 0)
+            {
+                var cachedMatchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => this.IsValidDeviceForPayload(x, (LoRaPayloadData)requestContext.Request.Payload, logError: false) && x.IsOurDevice);
+                if (cachedMatchingDevice != null)
                 {
-                    Logger.Log(matchingDevice.DevEUI ?? devAddr, $"device is not our device, ignore message", LogLevel.Information);
-                    return null;
+                    Logger.Log(cachedMatchingDevice.DevEUI, "device in cache", LogLevel.Debug);
+                    cachedMatchingDevice.QueueRequest(requestContext);
                 }
-
-                return matchingDevice;
             }
 
-            return null;
+            // not in cache, need to make a single search by dev addr
+            this.GetOrCreateLoadingDevicesRequestQueue(devAddr).Queue(requestContext);
         }
 
         /// <summary>

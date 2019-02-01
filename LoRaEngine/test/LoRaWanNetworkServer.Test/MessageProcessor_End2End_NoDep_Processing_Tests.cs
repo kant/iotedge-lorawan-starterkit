@@ -22,6 +22,8 @@ namespace LoRaWan.NetworkServer.Test
     using Newtonsoft.Json.Linq;
     using Xunit;
 
+/*
+
     // End to end tests without external dependencies (IoT Hub, Service Facade Function)
     // General message processor tests (Join tests are handled in other class)
     public class MessageProcessor_End2End_NoDep_Processing_Tests : MessageProcessorTestBase
@@ -980,4 +982,5 @@ namespace LoRaWan.NetworkServer.Test
             loRaDeviceClient.VerifyAll();
         }
     }
+*/
 }

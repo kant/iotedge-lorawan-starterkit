@@ -16,7 +16,7 @@ namespace LoRaWan.NetworkServer.Test
     using Microsoft.Azure.Devices.Shared;
     using Moq;
     using Xunit;
-
+/*
     /// <summary>
     /// Single gateway message processor tests
     /// </summary>
@@ -404,4 +404,5 @@ namespace LoRaWan.NetworkServer.Test
             Assert.Equal(payloadFCnt, loraDevice.FCntUp);
         }
     }
+*/
 }

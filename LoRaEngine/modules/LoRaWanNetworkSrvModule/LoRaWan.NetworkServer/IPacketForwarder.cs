@@ -1,7 +1,9 @@
+// Copyright (c) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 namespace LoRaWan.NetworkServer
 {
     using System.Threading.Tasks;
-    using LoRaTools.LoRaMessage;
     using LoRaTools.LoRaPhysical;
 
     // Packet forwarder
@@ -11,20 +13,5 @@ namespace LoRaWan.NetworkServer
         /// Send downstream message to LoRa device
         /// </summary>
         Task SendDownstreamAsync(DownlinkPktFwdMessage message);
-    }
-
-    public sealed class LoRaDeviceRequest
-    {
-        public LoRaTools.Regions.Region LoRaRegion { get; }
-        public LoRaOperationTimeWatcher OperationTimer { get; }
-        public Rxpk Rxpk { get; }
-        public LoRaPayload Payload { get; }
-        public NetworkServerConfiguration Configuration { get; }
-
-        public ILoRaDeviceFrameCounterUpdateStrategyFactory FrameCounterUpdateStrategyFactory { get; }
-
-        public ILoRaPayloadDecoder PayloadDecoder { get; }
-
-        public IPacketForwarder PacketForwarder { get; }
     }
 }
