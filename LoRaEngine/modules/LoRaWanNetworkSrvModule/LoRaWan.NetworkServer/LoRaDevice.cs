@@ -457,16 +457,19 @@ namespace LoRaWan.NetworkServer
                     // If it is confirmed and we don't have time to check c2d and send to device we return now
                     if (requiresConfirmation && timeToSecondWindow <= (LoRaOperationTimeWatcher.ExpectedTimeToCheckCloudToDeviceMessagePackageAndSendMessage))
                     {
-                        return CreateDownlinkMessage(
+                        var downlinkMessage = CreateDownlinkMessage(
                             null,
-                            loRaDevice,
-                            rxpk,
-                            loraPayload,
-                            request.OperationTimer,
-                            devAddr,
+                            request,
                             false, // fpending
                             (ushort)fcntDown
                         );
+
+                        if (downlinkMessage != null)
+                        {
+                            _ = request.PacketForwarder.SendDownstreamAsync(downlinkMessage);
+                        }
+
+                        return;
                     }
 
                     // ReceiveAsync has a longer timeout
@@ -564,6 +567,28 @@ namespace LoRaWan.NetworkServer
                     }
                 }
             }
+
+        private bool ValidateCloudToDeviceMessage(LoRaDevice loRaDevice, Message cloudToDeviceMsg)
+        {
+            // ensure fport property has been set
+            if (!cloudToDeviceMsg.Properties.TryGetValueCaseInsensitive(Constants.FPORT_MSG_PROPERTY_KEY, out var fportValue))
+            {
+                Logger.Log(loRaDevice.DevEUI, $"missing {Constants.FPORT_MSG_PROPERTY_KEY} property in C2D message '{cloudToDeviceMsg.MessageId}'", Logger.LoggingLevel.Error);
+                return false;
+            }
+
+            if (byte.TryParse(fportValue, out var fport))
+            {
+                // ensure fport follows LoRa specification
+                // 0    => reserved for mac commands
+                // 224+ => reserved for future applications 
+                if (fport != Constants.LORA_FPORT_RESERVED_MAC_MSG && fport < Constants.LORA_FPORT_RESERVED_FUTURE_START)
+                    return true;
+            }
+
+            Logger.Log(loRaDevice.DevEUI, $"invalid fport '{fportValue}' in C2D message '{cloudToDeviceMsg.MessageId}'", Logger.LoggingLevel.Error);
+            return false;
+        }
 
         /// <summary>
         /// Creates downlink message with ack for confirmation or cloud to device message
