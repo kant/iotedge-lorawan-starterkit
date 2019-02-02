@@ -34,81 +34,55 @@ namespace LoRaWan.NetworkServer.Test
             this.packetForwarder = new TestPacketForwarder();
         }
 
-        /// <summary>
-        /// Call durations, all in ms
-        /// </summary>
-        public class ParallelTestConfiguration
+        public static IEnumerable<object[]> Multiple_ABP_Messages()
         {
-            public string GatewayID { get; set; }
-
-            public RecordedDuration BetweenMessageDuration { get; set; }
-
-            public RecordedDuration SendTelemetryDuration { get; set; }
-
-            public RecordedDuration ReceiveEventDuration { get; set; }
-
-            public RecordedDuration UpdateTwinDuration { get; set; }
-
-            public RecordedDuration LoadTwinDuration { get; set; }
-
-            public RecordedDuration DeviceApiResetFcntDuration { get; set; }
-
-            public RecordedDuration SearchByDevAddrDuration { get; set; }
-
-            public int? DeviceTwinFcntUp { get; set; }
-
-            public int? DeviceTwinFcntDown { get; set; }
-
-            public static IEnumerable<object[]> Multiple_ABP_Messages()
+            yield return new object[]
             {
-                yield return new object[]
-                {
                     new ParallelTestConfiguration()
                     {
                         GatewayID = ServerGatewayID,
                         BetweenMessageDuration = 1000,
                         SearchByDevAddrDuration = 100,
-                        SendTelemetryDuration = 100,
+                        SendEventDuration = 100,
                         ReceiveEventDuration = 100,
                         UpdateTwinDuration = 100,
                         LoadTwinDuration = 100,
                     }
-                };
+            };
 
-                // Slow first calls
-                yield return new object[]
-                {
+            // Slow first calls
+            yield return new object[]
+            {
                     new ParallelTestConfiguration()
                     {
                         GatewayID = ServerGatewayID,
                         BetweenMessageDuration = 1000,
                         SearchByDevAddrDuration = new int[] { 1000, 100 },
-                        SendTelemetryDuration = new int[] { 1000, 100 },
+                        SendEventDuration = new int[] { 1000, 100 },
                         ReceiveEventDuration = 400,
                         UpdateTwinDuration = new int[] { 1000, 100 },
                         LoadTwinDuration = new int[] { 1000, 100 },
                     }
-                };
+            };
 
-                // Very slow first calls
-                yield return new object[]
-                {
+            // Very slow first calls
+            yield return new object[]
+            {
                     new ParallelTestConfiguration()
                     {
                         GatewayID = ServerGatewayID,
                         BetweenMessageDuration = 1000,
                         SearchByDevAddrDuration = new int[] { 5000, 100 },
-                        SendTelemetryDuration = new int[] { 1000, 100 },
+                        SendEventDuration = new int[] { 1000, 100 },
                         ReceiveEventDuration = 400,
                         UpdateTwinDuration = new int[] { 5000, 100 },
                         LoadTwinDuration = new int[] { 5000, 100 },
                     }
-                };
-            }
+            };
         }
 
         [Theory]
-        [MemberData(nameof(ParallelTestConfiguration.Multiple_ABP_Messages), MemberType = typeof(ParallelTestConfiguration))]
+        [MemberData(nameof(Multiple_ABP_Messages))]
         public async Task ABP_Load_And_Receiving_Multiple_Unconfirmed_Should_Send_All_ToHub(ParallelTestConfiguration parallelTestConfiguration)
         {
             Console.WriteLine("---");
@@ -124,7 +98,7 @@ namespace LoRaWan.NetworkServer.Test
                 .Returns<LoRaDeviceTelemetry, Dictionary<string, string>>((t, _) =>
                 {
                     sentTelemetry.Add(t);
-                    var duration = parallelTestConfiguration.SendTelemetryDuration.Next();
+                    var duration = parallelTestConfiguration.SendEventDuration.Next();
                     Console.WriteLine($"{nameof(loRaDeviceClient.Object.SendEventAsync)} sleeping for {duration}");
                     return Task.Delay(duration)
                         .ContinueWith((a) => true);
@@ -233,22 +207,22 @@ namespace LoRaWan.NetworkServer.Test
             var packetForwarder = new TestPacketForwarder();
 
             var req1 = new WaitableLoRaRequest(unconfirmedMessage1, this.packetForwarder);
-            _ = messageProcessor.ProcessRequestAsync(req1);
+            messageProcessor.DispatchRequest(req1);
             await Task.Delay(parallelTestConfiguration.BetweenMessageDuration.Next());
 
             var req2 = new WaitableLoRaRequest(unconfirmedMessage2, this.packetForwarder);
-            _ = messageProcessor.ProcessRequestAsync(req2);
+            messageProcessor.DispatchRequest(req2);
             await Task.Delay(parallelTestConfiguration.BetweenMessageDuration.Next());
 
             var req3 = new WaitableLoRaRequest(unconfirmedMessage3, this.packetForwarder);
-            _ = messageProcessor.ProcessRequestAsync(req3);
+            messageProcessor.DispatchRequest(req3);
             await Task.Delay(parallelTestConfiguration.BetweenMessageDuration.Next());
 
             await Task.WhenAll(req1.WaitCompleteAsync(), req2.WaitCompleteAsync(), req3.WaitCompleteAsync());
 
-            Assert.Null(req1.Downlink);
-            Assert.Null(req2.Downlink);
-            Assert.Null(req3.Downlink);
+            Assert.Null(req1.ResponseDownlink);
+            Assert.Null(req2.ResponseDownlink);
+            Assert.Null(req3.ResponseDownlink);
 
             loRaDeviceClient.Verify(x => x.GetTwinAsync(), Times.Exactly(1));
             loRaDeviceClient.Verify(x => x.UpdateReportedPropertiesAsync(It.IsAny<TwinCollection>()), Times.Exactly(1));

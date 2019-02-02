@@ -76,16 +76,20 @@ namespace LoRaWan.NetworkServer
                     var cts = new CancellationTokenSource();
                     ce.ExpirationTokens.Add(new CancellationChangeToken(cts.Token));
 
+                    var destinationDictionary = this.InternalGetCachedDevicesForDevAddr(devAddr);
+                    var originalDeviceCount = destinationDictionary.Count;
                     var loader = new DeviceLoaderSynchronizer(
                         devAddr,
                         this.loRaDeviceAPIService,
                         this.deviceFactory,
-                        this.InternalGetCachedDevicesForDevAddr(devAddr),
+                        destinationDictionary,
                         this.initializers,
                         this.configuration,
                         (t) =>
                         {
-                            if (t.IsCompletedSuccessfully)
+                            // If the operation to load was successfull and we retrieve devices
+                            // wait for 30 seconds for pending requests to go thorugh and avoid additional calls
+                            if (t.IsCompletedSuccessfully && destinationDictionary.Count > originalDeviceCount)
                             {
                                 // remove from cache after 30 seconds
                                 cts.CancelAfter(TimeSpan.FromSeconds(30));
@@ -114,6 +118,7 @@ namespace LoRaWan.NetworkServer
                 {
                     Logger.Log(cachedMatchingDevice.DevEUI, "device in cache", LogLevel.Debug);
                     cachedMatchingDevice.QueueRequest(requestContext);
+                    return;
                 }
             }
 

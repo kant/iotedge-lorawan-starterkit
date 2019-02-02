@@ -285,50 +285,53 @@ namespace LoRaWan.NetworkServer
             }
         }
 
-        private void OnRequestCompleted(Task<LoRaDeviceRequestProcessResult> completedTask)
+        private void QueueNext()
         {
-            LoRaRequestContext processedRequest = null;
-            DownlinkPktFwdMessage downlink = null;
-            Exception processingError = null;
-
             // Access to runningRequest and queuedRequests must be
             // thread safe
             lock (this)
             {
-                processedRequest = this.runningRequest;
-                if (completedTask.IsCompletedSuccessfully)
-                {
-                    downlink = completedTask.Result.DownlinkMessage;
-                }
-                else
-                {
-                    processingError = completedTask.Exception;
-                }
-
                 this.runningRequest = null;
                 if (this.queuedRequests.TryDequeue(out var nextRequest))
                 {
                     this.StartNextRequest(nextRequest);
                 }
             }
-
-            if (processingError != null)
-            {
-                processedRequest.NotifyFailed(this, processingError);
-            }
-            else
-            {
-                processedRequest.NotifySucceeded(this, downlink);
-            }
         }
 
         void StartNextRequest(LoRaRequestContext requestContext)
         {
-            this.runningRequest = requestContext;
+            async Task RunAndQueueNext(LoRaRequestContext ctx)
+            {
+                LoRaDeviceRequestProcessResult result = null;
+                Exception processingError = null;
 
-            this.ProcessRequest(requestContext)
-                .ContinueWith(this.OnRequestCompleted)
-                .ConfigureAwait(false);
+                try
+                {
+                    result = await this.ProcessRequest(ctx);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log(this.DevEUI, $"Error processing request: {ex.Message}", LogLevel.Error);
+                    processingError = ex;
+                }
+                finally
+                {
+                    this.QueueNext();
+                }
+
+                if (processingError != null)
+                {
+                    requestContext.NotifyFailed(this, processingError);
+                }
+                else
+                {
+                    requestContext.NotifySucceeded(this, result?.DownlinkMessage);
+                }
+            }
+
+            this.runningRequest = requestContext;
+            _ = RunAndQueueNext(requestContext);
         }
 
         async Task<LoRaDeviceRequestProcessResult> ProcessRequest(LoRaRequestContext requestContext)
@@ -343,6 +346,7 @@ namespace LoRaWan.NetworkServer
             var payloadFcnt = loraPayload.GetFcnt();
             var requiresConfirmation = loraPayload.IsConfirmed();
 
+            using (var logger = new ProcessLogger(timer, this.DevEUI))
             using (new LoRaDeviceFrameCounterSession(this, frameCounterStrategy))
             {
                 // Leaf devices that restart lose the counter. In relax mode we accept the incoming frame counter

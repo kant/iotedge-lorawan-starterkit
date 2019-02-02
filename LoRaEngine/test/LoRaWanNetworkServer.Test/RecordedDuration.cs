@@ -4,6 +4,7 @@ namespace LoRaWan.NetworkServer.Test
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
 
     public class RecordedDuration
     {
@@ -40,6 +41,16 @@ namespace LoRaWan.NetworkServer.Test
             }
 
             return TimeSpan.FromMilliseconds(this.Duration);
+        }
+
+        public override string ToString()
+        {
+            if (this.Sequence == null)
+            {
+                return $"{this.Duration}ms";
+            }
+
+            return $"{string.Join(',', this.Sequence.Take(2))}ms";
         }
 
         public static implicit operator RecordedDuration(int value) => new RecordedDuration(value);

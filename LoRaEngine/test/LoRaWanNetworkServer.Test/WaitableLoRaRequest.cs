@@ -23,15 +23,15 @@ namespace LoRaWan.NetworkServer.Test
     {
         SemaphoreSlim complete;
 
-        public bool Failed { get; private set; }
+        public bool ProcessingFailed { get; private set; }
 
         public LoRaDevice LoRaDevice { get; private set; }
 
-        public LoRaDeviceRequestQueueFailedReason FailedReason { get; private set; }
+        public LoRaDeviceRequestQueueFailedReason ProcessingFailedReason { get; private set; }
 
-        public DownlinkPktFwdMessage Downlink { get; private set; }
+        public DownlinkPktFwdMessage ResponseDownlink { get; private set; }
 
-        public bool Succeeded { get; private set; }
+        public bool ProcessingSucceeded { get; private set; }
 
         public WaitableLoRaRequest(LoRaPayloadData payload)
             : base(payload)
@@ -52,16 +52,16 @@ namespace LoRaWan.NetworkServer.Test
         private void OnSucceeded(LoRaRequest request, LoRaDevice loRaDevice, DownlinkPktFwdMessage downlink)
         {
             this.LoRaDevice = loRaDevice;
-            this.Downlink = downlink;
-            this.Succeeded = true;
+            this.ResponseDownlink = downlink;
+            this.ProcessingSucceeded = true;
             this.complete.Release();
         }
 
         private void OnFailed(LoRaRequest request, LoRaDevice loRaDevice, LoRaDeviceRequestQueueFailedReason reason)
         {
-            this.Failed = true;
+            this.ProcessingFailed = true;
             this.LoRaDevice = loRaDevice;
-            this.FailedReason = reason;
+            this.ProcessingFailedReason = reason;
             this.complete.Release();
         }
 

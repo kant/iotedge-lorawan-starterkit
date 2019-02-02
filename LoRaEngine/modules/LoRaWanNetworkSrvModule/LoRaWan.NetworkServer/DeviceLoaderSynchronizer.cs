@@ -50,7 +50,7 @@ namespace LoRaWan.NetworkServer
             this.loadingDevicesFailed = false;
             this.queueLock = new object();
             this.queuedRequests = new List<LoRaRequestContext>();
-            this.loading = this.Load().ContinueWith(continuationAction);
+            this.loading = this.Load().ContinueWith(continuationAction, TaskContinuationOptions.ExecuteSynchronously);
         }
 
         async Task Load()
@@ -68,9 +68,9 @@ namespace LoRaWan.NetworkServer
                     throw;
                 }
 
-                if (searchDeviceResult?.Devices != null)
+                var initTasks = new List<Task<LoRaDevice>>();
+                if (searchDeviceResult.Devices?.Count > 0)
                 {
-                    var initTasks = new List<Task<LoRaDevice>>();
                     foreach (var foundDevice in searchDeviceResult.Devices)
                     {
                         var loRaDevice = this.deviceFactory.Create(foundDevice);
@@ -85,8 +85,11 @@ namespace LoRaWan.NetworkServer
                     {
                         Logger.Log(this.devAddr, $"One or more device initialization failed. {ex.Message}", LogLevel.Error);
                     }
+                }
 
-                    var createdDevices = new List<LoRaDevice>();
+                var createdDevices = new List<LoRaDevice>();
+                if (initTasks.Count > 0)
+                {
                     foreach (var deviceTask in initTasks)
                     {
                         if (deviceTask.IsCompletedSuccessfully)
@@ -95,22 +98,23 @@ namespace LoRaWan.NetworkServer
                             createdDevices.Add(device);
                         }
                     }
+                }
 
-                    // Dispatch queued requests to created devices
-                    // those without a matching device will receive "failed" notification
-                    lock (this.queueLock)
+                // Dispatch queued requests to created devices
+                // those without a matching device will receive "failed" notification
+                lock (this.queueLock)
+                {
+                    this.DispatchQueuedItems(createdDevices);
+
+                    foreach (var device in createdDevices)
                     {
-                        this.DispatchQueuedItems(createdDevices);
-                        foreach (var device in createdDevices)
+                        this.destinationDictionary.AddOrUpdate(device.DevEUI, device, (_, existing) =>
                         {
-                            this.destinationDictionary.AddOrUpdate(device.DevEUI, device, (_, existing) =>
-                            {
-                                return existing;
-                            });
-                        }
-
-                        this.isLoadingDevices = false;
+                            return existing;
+                        });
                     }
+
+                    this.isLoadingDevices = false;
                 }
             }
             catch (Exception ex)
@@ -140,13 +144,16 @@ namespace LoRaWan.NetworkServer
             foreach (var queuedItem in this.queuedRequests)
             {
                 var requestHandled = false;
-                foreach (var device in devices)
+                if (devices.Count > 0)
                 {
-                    if (queuedItem.Request.Payload.CheckMic(device.NwkSKey))
+                    foreach (var device in devices)
                     {
-                        device.QueueRequest(queuedItem);
-                        requestHandled = true;
-                        break;
+                        if (queuedItem.Request.Payload.CheckMic(device.NwkSKey))
+                        {
+                            device.QueueRequest(queuedItem);
+                            requestHandled = true;
+                            break;
+                        }
                     }
                 }
 

@@ -55,8 +55,8 @@ namespace LoRaWan.NetworkServer.Test
 
             Assert.True(await req.WaitCompleteAsync());
             Assert.Null(req.LoRaDevice);
-            Assert.True(req.Failed);
-            Assert.Equal(LoRaDeviceRequestQueueFailedReason.ApplicationError, req.FailedReason);
+            Assert.True(req.ProcessingFailed);
+            Assert.Equal(LoRaDeviceRequestQueueFailedReason.ApplicationError, req.ProcessingFailedReason);
 
             // Device was searched by DevAddr
             apiService.VerifyAll();

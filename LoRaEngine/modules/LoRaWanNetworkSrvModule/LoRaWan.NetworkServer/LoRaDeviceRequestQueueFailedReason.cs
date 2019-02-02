@@ -10,5 +10,14 @@ namespace LoRaWan.NetworkServer
         NotMatchingDeviceByDevAddr,
 
         NotMatchingDeviceByMicCheck,
+        InvalidNetId,
+        InvalidRxpk,
+        InvalidRegion,
+        UnknownDevice,
+        InvalidJoinRequest,
+        JoinedInAnotherGateway,
+        JoinDevNonceAlreadyUsed,
+        JoinMicCheckFailed,
+        ReceiveWindowMissed,
     }
 }

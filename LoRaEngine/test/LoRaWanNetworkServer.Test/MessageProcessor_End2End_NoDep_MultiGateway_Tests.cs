@@ -13,11 +13,18 @@ namespace LoRaWan.NetworkServer.Test
     using Microsoft.Extensions.Caching.Memory;
     using Moq;
     using Xunit;
-/*
+
     // End to end tests without external dependencies (IoT Hub, Service Facade Function)
     // Multi gateway specifc scenarios
     public class MessageProcessor_End2End_NoDep_MultiGateway_Tests : MessageProcessorTestBase
     {
+        private readonly IPacketForwarder packetForwarder;
+
+        public MessageProcessor_End2End_NoDep_MultiGateway_Tests()
+        {
+            this.packetForwarder = new TestPacketForwarder();
+        }
+
         [Theory]
         [InlineData(0, 0, 1)]
         public async Task When_Fcnt_Down_Fails_Should_Stop_And_Not_Update_Device_Twin(int initialFcntDown, int initialFcntUp, int payloadFcnt)
@@ -57,8 +64,10 @@ namespace LoRaWan.NetworkServer.Test
             // sends unconfirmed message
             var unconfirmedMessagePayload = simulatedDevice.CreateConfirmedDataUpMessage("hello", fcnt: payloadFcnt);
             var rxpk = unconfirmedMessagePayload.SerializeUplink(simulatedDevice.AppSKey, simulatedDevice.NwkSKey).Rxpk[0];
-            var unconfirmedMessageResult = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(unconfirmedMessageResult);
+            var request1 = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request1);
+            Assert.True(await request1.WaitCompleteAsync());
+            Assert.Null(request1.ResponseDownlink);
 
             // verify that the device in device registry has correct properties and frame counters
             var devicesForDevAddr = deviceRegistry.InternalGetCachedDevicesForDevAddr(devAddr);
@@ -170,8 +179,10 @@ namespace LoRaWan.NetworkServer.Test
             // sends unconfirmed message
             var unconfirmedMessagePayload = simulatedDevice.CreateUnconfirmedDataUpMessage("hello", fcnt: payloadFcntUp);
             var rxpk = unconfirmedMessagePayload.SerializeUplink(simulatedDevice.AppSKey, simulatedDevice.NwkSKey).Rxpk[0];
-            var unconfirmedMessageResult = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(unconfirmedMessageResult);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             // Ensure that a telemetry was sent
             Assert.NotNull(loRaDeviceTelemetry);
@@ -207,7 +218,6 @@ namespace LoRaWan.NetworkServer.Test
         /// <summary>
         /// If cannot get a fcntdown from api should drop the c2d message
         /// </summary>
-        /// <returns></returns>
         [Fact]
         public async Task When_Getting_C2D_Message_Fails_To_Resolve_Fcnt_Down_Should_Drop_Message_And_Return_Null()
         {
@@ -268,8 +278,10 @@ namespace LoRaWan.NetworkServer.Test
             // sends unconfirmed message
             var unconfirmedMessagePayload = simulatedDevice.CreateUnconfirmedDataUpMessage("hello", fcnt: payloadFcnt);
             var rxpk = unconfirmedMessagePayload.SerializeUplink(simulatedDevice.AppSKey, simulatedDevice.NwkSKey).Rxpk[0];
-            var unconfirmedMessageResult = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(unconfirmedMessageResult);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             var cachedDevices = deviceRegistry.InternalGetCachedDevicesForDevAddr(simulatedDevice.DevAddr);
             Assert.True(cachedDevices.TryGetValue(devEUI, out var loRaDevice));
@@ -285,6 +297,96 @@ namespace LoRaWan.NetworkServer.Test
             loRaDeviceClient.VerifyAll();
             loRaDeviceApi.VerifyAll();
         }
+
+        [Fact]
+        public async Task With_Two_Gateways_Unconfirmed_Message_Should_Send_Data_Twice_To_IotHub_Update_FcntUp_And_Not_Send_Downlink()
+        {
+            var simulatedDevice = new SimulatedDevice(TestDeviceInfo.CreateABPDevice(1));
+            var devAddr = simulatedDevice.DevAddr;
+            var loraDeviceClient = new Mock<ILoRaDeviceClient>(MockBehavior.Strict);
+
+            // 2 messages will be sent
+            loraDeviceClient.SetupSequence(x => x.SendEventAsync(It.IsNotNull<LoRaDeviceTelemetry>(), null))
+                .ReturnsAsync(true)
+                .ReturnsAsync(true);
+
+            // cloud to device messages will be checked twice
+            loraDeviceClient.SetupSequence(x => x.ReceiveAsync(It.IsNotNull<TimeSpan>()))
+                .ReturnsAsync((Message)null)
+                .ReturnsAsync((Message)null);
+
+            var loraDevice1 = TestUtils.CreateFromSimulatedDevice(simulatedDevice, loraDeviceClient.Object);
+            var loraDevice2 = TestUtils.CreateFromSimulatedDevice(simulatedDevice, loraDeviceClient.Object);
+
+            var loRaDeviceApi = new Mock<LoRaDeviceAPIServiceBase>(MockBehavior.Strict);
+            var deviceFactory = new LoRaDeviceFactory(this.ServerConfiguration);
+
+            var cache1 = new MemoryCache(new MemoryCacheOptions());
+            var dictionary1 = new DevEUIToLoRaDeviceDictionary();
+            dictionary1.TryAdd(loraDevice1.DevEUI, loraDevice1);
+            cache1.Set<DevEUIToLoRaDeviceDictionary>(devAddr, dictionary1);
+            var deviceRegistry1 = new LoRaDeviceRegistry(this.ServerConfiguration, cache1, loRaDeviceApi.Object, deviceFactory);
+
+            var cache2 = new MemoryCache(new MemoryCacheOptions());
+            var dictionary2 = new DevEUIToLoRaDeviceDictionary();
+            dictionary2.TryAdd(loraDevice2.DevEUI, loraDevice2);
+            cache2.Set<DevEUIToLoRaDeviceDictionary>(devAddr, dictionary2);
+            var deviceRegistry2 = new LoRaDeviceRegistry(this.ServerConfiguration, cache2, loRaDeviceApi.Object, deviceFactory);
+
+            // Setup frame counter strategy
+            this.FrameCounterUpdateStrategyFactory.Setup(x => x.GetMultiGatewayStrategy())
+                .Returns(new TestMultiGatewayUpdateFrameStrategy());
+
+            // Frame counter will be asked to save changes
+            this.FrameCounterUpdateStrategy.Setup(x => x.SaveChangesAsync(loraDevice1)).ReturnsAsync(true);
+            this.FrameCounterUpdateStrategy.Setup(x => x.SaveChangesAsync(loraDevice2)).ReturnsAsync(true);
+
+            // Send to message processor
+            var messageProcessor1 = new MessageProcessor(
+                this.ServerConfiguration,
+                deviceRegistry1,
+                this.FrameCounterUpdateStrategyFactory.Object,
+                new LoRaPayloadDecoder());
+
+            var messageProcessor2 = new MessageProcessor(
+                new NetworkServerConfiguration() { GatewayID = "test-gateway-2" },
+                deviceRegistry2,
+                this.FrameCounterUpdateStrategyFactory.Object,
+                new LoRaPayloadDecoder());
+
+            // Starts with fcnt up zero
+            Assert.Equal(0, loraDevice1.FCntUp);
+            Assert.Equal(0, loraDevice2.FCntUp);
+
+            var payload = simulatedDevice.CreateUnconfirmedDataUpMessage("1234", fcnt: 1);
+
+            // Create Rxpk
+            var rxpk = payload.SerializeUplink(simulatedDevice.AppSKey, simulatedDevice.NwkSKey).Rxpk[0];
+            var request1 = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor1.DispatchRequest(request1);
+
+            var request2 = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor2.DispatchRequest(request2);
+
+            await Task.WhenAll(request1.WaitCompleteAsync(), request2.WaitCompleteAsync());
+
+            // Expectations
+            // 1. Message was sent to IoT Hub twice
+            loraDeviceClient.VerifyAll();
+
+            // 2. Single gateway frame counter strategy was used
+            this.FrameCounterUpdateStrategyFactory.VerifyAll();
+
+            // 3. Return is null (there is nothing to send downstream)
+            Assert.Null(request1.ResponseDownlink);
+            Assert.Null(request2.ResponseDownlink);
+
+            Assert.True(request1.ProcessingSucceeded);
+            Assert.True(request2.ProcessingSucceeded);
+
+            // 4. Frame counter up was updated to 1
+            Assert.Equal(1, loraDevice1.FCntUp);
+            Assert.Equal(1, loraDevice2.FCntUp);
+        }
     }
-*/
 }

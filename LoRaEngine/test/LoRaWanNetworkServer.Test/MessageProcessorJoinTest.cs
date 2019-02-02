@@ -16,11 +16,13 @@ namespace LoRaWan.NetworkServer.Test
     using Moq;
     using Xunit;
 
-    /*
     public class MessageProcessorJoinTest : MessageProcessorTestBase
     {
+        private readonly IPacketForwarder packetForwarder;
+
         public MessageProcessorJoinTest()
         {
+            this.packetForwarder = new TestPacketForwarder();
         }
 
         [Fact]
@@ -48,8 +50,10 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var actual = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(actual);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
         }
 
         [Fact]
@@ -91,10 +95,12 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var actual = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.NotNull(actual);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.NotNull(request.ResponseDownlink);
 
-            var pktFwdMessage = actual.GetPktFwdMessage();
+            var pktFwdMessage = request.ResponseDownlink;
             Assert.NotNull(pktFwdMessage.Txpk);
             var joinAccept = new LoRaPayloadJoinAccept(Convert.FromBase64String(pktFwdMessage.Txpk.Data), loRaDevice.AppKey);
             Assert.Equal(joinAccept.DevAddr.ToArray(), this.ByteArray(loRaDevice.DevAddr).ToArray());
@@ -155,8 +161,10 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var actual = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(actual);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             // Device frame counts were not modified
             Assert.Equal(10, loRaDevice.FCntDown);
@@ -196,8 +204,10 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var actual = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(actual);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             // Device frame counts were not modified
             Assert.Equal(10, loRaDevice.FCntDown);
@@ -238,8 +248,10 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var actual = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(actual);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             // Device frame counts did not changed
             Assert.Equal(10, loRaDevice.FCntDown);
@@ -275,8 +287,10 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var actual = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(actual);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             // Device frame counts did not changed
             Assert.Equal(10, loRaDevice.FCntDown);
@@ -354,9 +368,11 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var downlinkMessage = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.NotNull(downlinkMessage);
-            var joinAccept = new LoRaPayloadJoinAccept(Convert.FromBase64String(downlinkMessage.Txpk.Data), simulatedDevice.LoRaDevice.AppKey);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.NotNull(request.ResponseDownlink);
+            var joinAccept = new LoRaPayloadJoinAccept(Convert.FromBase64String(request.ResponseDownlink.Txpk.Data), simulatedDevice.LoRaDevice.AppKey);
             Assert.Equal(joinAccept.DevAddr.ToArray(), ConversionHelper.StringToByteArray(afterJoinDevAddr));
 
             // check that the device is in cache
@@ -412,12 +428,13 @@ namespace LoRaWan.NetworkServer.Test
                 this.FrameCounterUpdateStrategyFactory.Object,
                 payloadDecoder.Object);
 
-            var downlinkMessage = await messageProcessor.ProcessMessageAsync(rxpk);
-            Assert.Null(downlinkMessage);
+            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            messageProcessor.DispatchRequest(request);
+            Assert.True(await request.WaitCompleteAsync());
+            Assert.Null(request.ResponseDownlink);
 
             loRaDeviceApi.VerifyAll();
             loRaDeviceClient.VerifyAll();
         }
     }
-    */
 }

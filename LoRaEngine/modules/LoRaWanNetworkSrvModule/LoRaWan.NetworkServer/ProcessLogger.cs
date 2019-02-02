@@ -25,6 +25,12 @@ namespace LoRaWan.NetworkServer
             this.devAddr = devAddr;
         }
 
+        internal ProcessLogger(LoRaOperationTimeWatcher timeWatcher, string devEUI)
+        {
+            this.timeWatcher = timeWatcher;
+            this.devEUI = devEUI;
+        }
+
         internal void SetDevAddr(ReadOnlyMemory<byte> value) => this.devAddr = value;
 
         internal void SetDevEUI(string value) => this.devEUI = value;

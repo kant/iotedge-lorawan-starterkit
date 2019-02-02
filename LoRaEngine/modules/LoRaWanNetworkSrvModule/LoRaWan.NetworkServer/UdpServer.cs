@@ -4,21 +4,17 @@
 namespace LoRaWan.NetworkServer
 {
     using System;
-    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Net;
-    using System.Net.Http;
     using System.Net.Sockets;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using LoRaTools;
-    using LoRaTools.LoRaMessage;
     using LoRaTools.LoRaPhysical;
     using LoRaTools.Utils;
     using LoRaWan.Shared;
     using Microsoft.Azure.Devices.Client;
-    using Microsoft.Azure.Devices.Client.Transport.Mqtt;
     using Microsoft.Azure.Devices.Shared;
     using Microsoft.Extensions.Caching.Memory;
     using Microsoft.Extensions.Logging;
@@ -129,32 +125,7 @@ namespace LoRaWan.NetworkServer
                     // This is a PUSH_DATA (upstream message).
                     case PhysicalIdentifier.PUSH_DATA:
                         this.SendAcknowledgementMessage(receivedResults, (int)PhysicalIdentifier.PUSH_ACK, receivedResults.RemoteEndPoint);
-
-                        // Message processing runs in the background
-                        var remoteEndPointAddress = receivedResults.RemoteEndPoint.Address.ToString();
-                        _ = Task.Run(async () =>
-                        {
-                            List<Rxpk> messageRxpks = Rxpk.CreateRxpk(receivedResults.Buffer);
-                            if (messageRxpks != null)
-                            {
-                                if (messageRxpks.Count == 1)
-                                {
-                                    await this.ProcessRxpkAsync(receivedResults.RemoteEndPoint.Address.ToString(), messageRxpks[0], startTimeProcessing);
-                                }
-                                else if (messageRxpks.Count > 1)
-                                {
-                                    Task toWait = null;
-                                    for (int i = 0; i < messageRxpks.Count; i++)
-                                    {
-                                        var t = this.ProcessRxpkAsync(remoteEndPointAddress, messageRxpks[i], startTimeProcessing);
-                                        if (toWait == null)
-                                            toWait = t;
-                                    }
-
-                                    await toWait;
-                                }
-                            }
-                        });
+                        this.DispatchMessages(receivedResults.Buffer, startTimeProcessing);
 
                         break;
 
@@ -185,35 +156,22 @@ namespace LoRaWan.NetworkServer
             }
         }
 
-        private async Task ProcessRxpkAsync(string remoteIp, Rxpk rxpk, DateTime startTimeProcessing)
+        private void DispatchMessages(byte[] buffer, DateTime startTimeProcessing)
         {
             try
             {
-                var req = new LoRaRequest(rxpk, this, startTimeProcessing);
-                var downstreamMessage = await this.messageProcessor.ProcessRequestAsync(req);
-                if (downstreamMessage?.Txpk != null)
+                List<Rxpk> messageRxpks = Rxpk.CreateRxpk(buffer);
+                if (messageRxpks != null)
                 {
-                    var jsonMsg = JsonConvert.SerializeObject(downstreamMessage);
-                    var messageByte = Encoding.UTF8.GetBytes(jsonMsg);
-                    var token = await this.GetTokenAsync();
-                    PhysicalPayload pyld = new PhysicalPayload(token, PhysicalIdentifier.PULL_RESP, messageByte);
-                    if (this.pullAckRemoteLoRaAggregatorPort != 0)
+                    foreach (var rxpk in messageRxpks)
                     {
-                        await this.UdpSendMessage(pyld.GetMessage(), remoteIp, this.pullAckRemoteLoRaAggregatorPort);
-                        Logger.Log("UDP", $"message sent with ID {ConversionHelper.ByteArrayToString(token)}", LogLevel.Information);
-                    }
-                    else
-                    {
-                        Logger.Log(
-                            "UDP",
-                            "Waiting for first pull_ack message from the packet forwarder. The received message was discarded as the network server is still starting.",
-                            LogLevel.Debug);
+                        this.messageProcessor.DispatchRequest(new LoRaRequest(rxpk, this, startTimeProcessing));
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.Log($"Error processing the message {ex.Message}, {ex.StackTrace}", LogLevel.Error);
+                Logger.Log("UDP", $"Failed to dispatch messages: {ex.Message}", LogLevel.Error);
             }
         }
 

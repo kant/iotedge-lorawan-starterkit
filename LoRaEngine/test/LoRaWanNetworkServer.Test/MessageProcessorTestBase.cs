@@ -11,6 +11,7 @@ namespace LoRaWan.NetworkServer.Test
     using LoRaTools.Regions;
     using LoRaWan.NetworkServer;
     using LoRaWan.Test.Shared;
+    using Microsoft.Extensions.Caching.Memory;
     using Microsoft.Extensions.Logging;
     using Moq;
 
@@ -51,5 +52,7 @@ namespace LoRaWan.NetworkServer.Test
             this.loRaDeviceRegistry = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
             this.loRaDeviceRegistry.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
         }
+
+        public MemoryCache NewMemoryCache() => new MemoryCache(new MemoryCacheOptions());
     }
 }
