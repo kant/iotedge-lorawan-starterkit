@@ -11,9 +11,9 @@ namespace LoRaWan.NetworkServer
     public interface ILoRaDeviceRegistry
     {
         /// <summary>
-        /// Queue <paramref name="request"/> in a device queue
+        /// Gets a <see cref="ILoRaDeviceRequestQueue"/> where requests can be queued
         /// </summary>
-        void QueueRequest(LoRaRequestContext request);
+        ILoRaDeviceRequestQueue GetLoRaRequestQueue(LoRaRequest request);
 
         /// <summary>
         /// Gets devices that matches an OTAA join request

@@ -18,11 +18,8 @@ namespace LoRaWan.NetworkServer.Test
 
     public class MessageProcessorJoinTest : MessageProcessorTestBase
     {
-        private readonly IPacketForwarder packetForwarder;
-
         public MessageProcessorJoinTest()
         {
-            this.packetForwarder = new TestPacketForwarder();
         }
 
         [Fact]
@@ -40,20 +37,22 @@ namespace LoRaWan.NetworkServer.Test
             var devEUI = simulatedDevice.LoRaDevice.DeviceID;
             var appEUI = simulatedDevice.LoRaDevice.AppEUI;
 
-            this.LoRaDeviceRegistry.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
+            var deviceRegistryMock = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
+            deviceRegistryMock.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            deviceRegistryMock.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
                 .ReturnsAsync(() => null);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
-                this.LoRaDeviceRegistry.Object,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                deviceRegistryMock.Object,
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.Null(request.ResponseDownlink);
+            deviceRegistryMock.VerifyAll();
         }
 
         [Fact]
@@ -78,10 +77,12 @@ namespace LoRaWan.NetworkServer.Test
             var devEUI = simulatedDevice.LoRaDevice.DeviceID;
             var appEUI = simulatedDevice.LoRaDevice.AppEUI;
 
-            this.LoRaDeviceRegistry.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
+            var deviceRegistryMock = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
+            deviceRegistryMock.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            deviceRegistryMock.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
                 .ReturnsAsync(() => loRaDevice);
 
-            this.LoRaDeviceRegistry.Setup(x => x.UpdateDeviceAfterJoin(loRaDevice));
+            deviceRegistryMock.Setup(x => x.UpdateDeviceAfterJoin(loRaDevice));
 
             // Ensure that the device twin was updated
             loRaDeviceClient.Setup(x => x.UpdateReportedPropertiesAsync(It.Is<TwinCollection>((t) =>
@@ -91,11 +92,10 @@ namespace LoRaWan.NetworkServer.Test
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
-                this.LoRaDeviceRegistry.Object,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                deviceRegistryMock.Object,
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.NotNull(request.ResponseDownlink);
@@ -118,6 +118,7 @@ namespace LoRaWan.NetworkServer.Test
 
             // Twin property were updated
             loRaDeviceClient.VerifyAll();
+            deviceRegistryMock.VerifyAll();
         }
 
         private Memory<byte> ReversedByteArray(string value)
@@ -150,21 +151,23 @@ namespace LoRaWan.NetworkServer.Test
             var devEUI = simulatedDevice.LoRaDevice.DeviceID;
             var appEUI = simulatedDevice.LoRaDevice.AppEUI;
 
-            this.LoRaDeviceRegistry.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
+            var deviceRegistryMock = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
+            deviceRegistryMock.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            deviceRegistryMock.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
                 .Callback(() => Thread.Sleep(TimeSpan.FromSeconds(7)))
                 .ReturnsAsync(() => loRaDevice);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
-                this.LoRaDeviceRegistry.Object,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                deviceRegistryMock.Object,
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.Null(request.ResponseDownlink);
+            Assert.Equal(LoRaDeviceRequestFailedReason.ReceiveWindowMissed, request.ProcessingFailedReason);
 
             // Device frame counts were not modified
             Assert.Equal(10, loRaDevice.FCntDown);
@@ -179,8 +182,7 @@ namespace LoRaWan.NetworkServer.Test
         {
             var simulatedDevice = new SimulatedDevice(TestDeviceInfo.CreateOTAADevice(1, gatewayID: this.ServerConfiguration.GatewayID));
             var joinRequest = simulatedDevice.CreateJoinRequest();
-            var loRaDeviceClient = new Mock<ILoRaDeviceClient>();
-            var loRaDevice = TestUtils.CreateFromSimulatedDevice(simulatedDevice, loRaDeviceClient.Object);
+            var loRaDevice = this.CreateLoRaDevice(simulatedDevice);
             loRaDevice.SetFcntDown(10);
             loRaDevice.SetFcntUp(20);
 
@@ -188,23 +190,22 @@ namespace LoRaWan.NetworkServer.Test
             // Create Rxpk
             var rxpk = joinRequest.SerializeUplink(wrongAppKey).Rxpk[0];
 
-            var payloadDecoder = new Mock<ILoRaPayloadDecoder>();
-
             var devNonce = ConversionHelper.ByteArrayToString(joinRequest.DevNonce);
             var devEUI = simulatedDevice.LoRaDevice.DeviceID;
             var appEUI = simulatedDevice.LoRaDevice.AppEUI;
 
-            this.LoRaDeviceRegistry.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
+            var deviceRegistryMock = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
+            deviceRegistryMock.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            deviceRegistryMock.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
                 .ReturnsAsync(() => loRaDevice);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
-                this.LoRaDeviceRegistry.Object,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                deviceRegistryMock.Object,
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.Null(request.ResponseDownlink);
@@ -214,7 +215,8 @@ namespace LoRaWan.NetworkServer.Test
             Assert.Equal(20, loRaDevice.FCntUp);
 
             // Twin property were updated
-            loRaDeviceClient.VerifyAll();
+            this.LoRaDeviceClient.VerifyAll();
+            deviceRegistryMock.VerifyAll();
         }
 
         [Fact]
@@ -238,17 +240,18 @@ namespace LoRaWan.NetworkServer.Test
             loRaDevice.SetFcntDown(10);
             loRaDevice.SetFcntUp(20);
 
-            this.LoRaDeviceRegistry.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
+            var deviceRegistryMock = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
+            deviceRegistryMock.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            deviceRegistryMock.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
                 .ReturnsAsync(() => loRaDevice);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
-                this.LoRaDeviceRegistry.Object,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                deviceRegistryMock.Object,
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.Null(request.ResponseDownlink);
@@ -256,6 +259,8 @@ namespace LoRaWan.NetworkServer.Test
             // Device frame counts did not changed
             Assert.Equal(10, loRaDevice.FCntDown);
             Assert.Equal(20, loRaDevice.FCntUp);
+
+            deviceRegistryMock.VerifyAll();
         }
 
         [Fact]
@@ -277,17 +282,18 @@ namespace LoRaWan.NetworkServer.Test
             loRaDevice.SetFcntDown(10);
             loRaDevice.SetFcntUp(20);
 
-            this.LoRaDeviceRegistry.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
+            var deviceRegistryMock = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
+            deviceRegistryMock.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            deviceRegistryMock.Setup(x => x.GetDeviceForJoinRequestAsync(devEUI, appEUI, devNonce))
                 .ReturnsAsync(() => loRaDevice);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
-                this.LoRaDeviceRegistry.Object,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                deviceRegistryMock.Object,
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.Null(request.ResponseDownlink);
@@ -295,6 +301,8 @@ namespace LoRaWan.NetworkServer.Test
             // Device frame counts did not changed
             Assert.Equal(10, loRaDevice.FCntDown);
             Assert.Equal(20, loRaDevice.FCntUp);
+
+            deviceRegistryMock.VerifyAll();
         }
 
         [Theory]
@@ -315,8 +323,6 @@ namespace LoRaWan.NetworkServer.Test
             var devEUI = simulatedDevice.LoRaDevice.DeviceID;
             var appEUI = simulatedDevice.LoRaDevice.AppEUI;
 
-            var loRaDeviceClient = new Mock<ILoRaDeviceClient>(MockBehavior.Strict);
-
             // Device twin will be queried
             var twin = new Twin();
             twin.Properties.Desired[TwinProperty.DevEUI] = devEUI;
@@ -324,13 +330,13 @@ namespace LoRaWan.NetworkServer.Test
             twin.Properties.Desired[TwinProperty.AppKey] = simulatedDevice.LoRaDevice.AppKey;
             twin.Properties.Desired[TwinProperty.GatewayID] = deviceGatewayID;
             twin.Properties.Desired[TwinProperty.SensorDecoder] = simulatedDevice.LoRaDevice.SensorDecoder;
-            loRaDeviceClient.Setup(x => x.GetTwinAsync()).ReturnsAsync(twin);
+            this.LoRaDeviceClient.Setup(x => x.GetTwinAsync()).ReturnsAsync(twin);
 
             // Device twin will be updated
             string afterJoinAppSKey = null;
             string afterJoinNwkSKey = null;
             string afterJoinDevAddr = null;
-            loRaDeviceClient.Setup(x => x.UpdateReportedPropertiesAsync(It.IsNotNull<TwinCollection>()))
+            this.LoRaDeviceClient.Setup(x => x.UpdateReportedPropertiesAsync(It.IsNotNull<TwinCollection>()))
                 .Callback<TwinCollection>((updatedTwin) =>
                 {
                     afterJoinAppSKey = updatedTwin[TwinProperty.AppSKey];
@@ -340,35 +346,19 @@ namespace LoRaWan.NetworkServer.Test
                 .ReturnsAsync(true);
 
             // Lora device api will be search by devices with matching deveui,
-            var loRaDeviceApi = new Mock<LoRaDeviceAPIServiceBase>(MockBehavior.Strict);
-            loRaDeviceApi.Setup(x => x.SearchAndLockForJoinAsync(this.ServerConfiguration.GatewayID, devEUI, appEUI, devNonce))
+            this.LoRaDeviceApi.Setup(x => x.SearchAndLockForJoinAsync(this.ServerConfiguration.GatewayID, devEUI, appEUI, devNonce))
                 .ReturnsAsync(new SearchDevicesResult(new IoTHubDeviceInfo(devAddr, devEUI, "aabb").AsList()));
 
-            var loRaDeviceFactory = new TestLoRaDeviceFactory(loRaDeviceClient.Object);
-
             var memoryCache = new MemoryCache(new MemoryCacheOptions());
-            var deviceRegistry = new LoRaDeviceRegistry(this.ServerConfiguration, memoryCache, loRaDeviceApi.Object, loRaDeviceFactory);
-
-            // Setup frame counter strategy for FrameCounterLoRaDeviceInitializer
-            if (deviceGatewayID == null)
-            {
-                this.FrameCounterUpdateStrategyFactory.Setup(x => x.GetMultiGatewayStrategy())
-                    .Returns(this.FrameCounterUpdateStrategy.Object);
-            }
-            else
-            {
-                this.FrameCounterUpdateStrategyFactory.Setup(x => x.GetSingleGatewayStrategy())
-                    .Returns(this.FrameCounterUpdateStrategy.Object);
-            }
+            var deviceRegistry = new LoRaDeviceRegistry(this.ServerConfiguration, memoryCache, this.LoRaDeviceApi.Object, this.LoRaDeviceFactory);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
                 deviceRegistry,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.NotNull(request.ResponseDownlink);
@@ -391,10 +381,13 @@ namespace LoRaWan.NetworkServer.Test
             Assert.Equal(0, cachedDevice.FCntUp);
             Assert.Equal(0, cachedDevice.FCntDown);
             Assert.False(cachedDevice.HasFrameCountChanges);
+
+            this.LoRaDeviceApi.VerifyAll();
+            this.LoRaDeviceClient.VerifyAll();
         }
 
         [Fact]
-        public async Task When_Api_Returns_DevAlreadyUsed_Should_Return_Null()
+        public async Task When_Api_Returns_DevNonceAlreadyUsed_Should_Return_Null()
         {
             var simulatedDevice = new SimulatedDevice(TestDeviceInfo.CreateOTAADevice(1, gatewayID: null));
             var joinRequest = simulatedDevice.CreateJoinRequest();
@@ -409,32 +402,26 @@ namespace LoRaWan.NetworkServer.Test
             var devEUI = simulatedDevice.LoRaDevice.DeviceID;
             var appEUI = simulatedDevice.LoRaDevice.AppEUI;
 
-            var loRaDeviceClient = new Mock<ILoRaDeviceClient>(MockBehavior.Strict);
-
             // Lora device api will be search by devices with matching deveui,
-            var loRaDeviceApi = new Mock<LoRaDeviceAPIServiceBase>(MockBehavior.Strict);
-            loRaDeviceApi.Setup(x => x.SearchAndLockForJoinAsync(this.ServerConfiguration.GatewayID, devEUI, appEUI, devNonce))
+            this.LoRaDeviceApi.Setup(x => x.SearchAndLockForJoinAsync(this.ServerConfiguration.GatewayID, devEUI, appEUI, devNonce))
                 .ReturnsAsync(new SearchDevicesResult() { IsDevNonceAlreadyUsed = true });
 
-            var loRaDeviceFactory = new TestLoRaDeviceFactory(loRaDeviceClient.Object);
-
             var memoryCache = new MemoryCache(new MemoryCacheOptions());
-            var deviceRegistry = new LoRaDeviceRegistry(this.ServerConfiguration, memoryCache, loRaDeviceApi.Object, loRaDeviceFactory);
+            var deviceRegistry = new LoRaDeviceRegistry(this.ServerConfiguration, memoryCache, this.LoRaDeviceApi.Object, this.LoRaDeviceFactory);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
                 deviceRegistry,
-                this.FrameCounterUpdateStrategyFactory.Object,
-                payloadDecoder.Object);
+                this.FrameCounterUpdateStrategyFactory);
 
-            var request = new WaitableLoRaRequest(rxpk, this.packetForwarder);
+            var request = new WaitableLoRaRequest(rxpk, this.PacketForwarder);
             messageProcessor.DispatchRequest(request);
             Assert.True(await request.WaitCompleteAsync());
             Assert.Null(request.ResponseDownlink);
 
-            loRaDeviceApi.VerifyAll();
-            loRaDeviceClient.VerifyAll();
+            this.LoRaDeviceApi.VerifyAll();
+            this.LoRaDeviceClient.VerifyAll();
         }
     }
 }

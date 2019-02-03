@@ -59,11 +59,12 @@ namespace LoRaWan.NetworkServer
         {
             var configuration = NetworkServerConfiguration.CreateFromEnviromentVariables();
 
-            var loRaDeviceFactory = new LoRaDeviceFactory(configuration);
             var loRaDeviceAPIService = new LoRaDeviceAPIService(configuration, new ServiceFacadeHttpClientProvider(configuration, ApiVersion.LatestVersion));
-            var loRaDeviceRegistry = new LoRaDeviceRegistry(configuration, new MemoryCache(new MemoryCacheOptions()), loRaDeviceAPIService, loRaDeviceFactory);
             var frameCounterStrategyFactory = new LoRaDeviceFrameCounterUpdateStrategyFactory(configuration.GatewayID, loRaDeviceAPIService);
-            var messageProcessor = new MessageProcessor(configuration, loRaDeviceRegistry, frameCounterStrategyFactory, new LoRaPayloadDecoder());
+            var dataHandlerImplementation = new LoRaDataRequestHandlerImplementation(configuration, frameCounterStrategyFactory, new LoRaPayloadDecoder());
+            var loRaDeviceFactory = new LoRaDeviceFactory(configuration, dataHandlerImplementation);
+            var loRaDeviceRegistry = new LoRaDeviceRegistry(configuration, new MemoryCache(new MemoryCacheOptions()), loRaDeviceAPIService, loRaDeviceFactory);
+            var messageProcessor = new MessageProcessor(configuration, loRaDeviceRegistry, frameCounterStrategyFactory);
             return new UdpServer(configuration, messageProcessor, loRaDeviceAPIService, loRaDeviceRegistry);
         }
 

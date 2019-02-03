@@ -51,12 +51,12 @@ namespace LoRaWan.NetworkServer.Test
             var target = new LoRaDeviceRegistry(this.serverConfiguration, this.cache, apiService.Object, this.loraDeviceFactoryMock.Object);
 
             var req = new WaitableLoRaRequest(payload);
-            target.QueueRequest(new LoRaRequestContext(req));
+            target.GetLoRaRequestQueue(req).Queue(req);
 
             Assert.True(await req.WaitCompleteAsync());
             Assert.Null(req.LoRaDevice);
             Assert.True(req.ProcessingFailed);
-            Assert.Equal(LoRaDeviceRequestQueueFailedReason.ApplicationError, req.ProcessingFailedReason);
+            Assert.Equal(LoRaDeviceRequestFailedReason.ApplicationError, req.ProcessingFailedReason);
 
             // Device was searched by DevAddr
             apiService.VerifyAll();

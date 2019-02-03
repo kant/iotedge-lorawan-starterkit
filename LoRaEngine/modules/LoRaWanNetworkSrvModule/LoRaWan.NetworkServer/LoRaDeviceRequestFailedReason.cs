@@ -3,12 +3,10 @@
 
 namespace LoRaWan.NetworkServer
 {
-    public enum LoRaDeviceRequestQueueFailedReason
+    public enum LoRaDeviceRequestFailedReason
     {
         ApplicationError,
-
         NotMatchingDeviceByDevAddr,
-
         NotMatchingDeviceByMicCheck,
         InvalidNetId,
         InvalidRxpk,

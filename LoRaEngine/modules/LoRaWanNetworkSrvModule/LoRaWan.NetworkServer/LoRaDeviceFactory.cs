@@ -11,10 +11,12 @@ namespace LoRaWan.NetworkServer
     public class LoRaDeviceFactory : ILoRaDeviceFactory
     {
         private readonly NetworkServerConfiguration configuration;
+        private readonly LoRaDataRequestHandlerImplementation dataRequestHandler;
 
-        public LoRaDeviceFactory(NetworkServerConfiguration configuration)
+        public LoRaDeviceFactory(NetworkServerConfiguration configuration, LoRaDataRequestHandlerImplementation dataRequestHandler)
         {
             this.configuration = configuration;
+            this.dataRequestHandler = dataRequestHandler;
         }
 
         public LoRaDevice Create(IoTHubDeviceInfo deviceInfo)
@@ -25,6 +27,8 @@ namespace LoRaWan.NetworkServer
                 devAddr: deviceInfo.DevAddr,
                 devEUI: deviceInfo.DevEUI,
                 loRaDeviceClient: loraDeviceClient);
+
+            loRaDevice.SetRequestHandler(this.dataRequestHandler);
 
             return loRaDevice;
         }

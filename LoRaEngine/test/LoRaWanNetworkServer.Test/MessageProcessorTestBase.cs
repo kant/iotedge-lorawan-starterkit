@@ -19,40 +19,45 @@ namespace LoRaWan.NetworkServer.Test
     {
         protected const string ServerGatewayID = "test-gateway";
 
-        private readonly Mock<ILoRaDeviceFrameCounterUpdateStrategy> frameCounterUpdateStrategy;
-        private readonly Mock<ILoRaDeviceFrameCounterUpdateStrategyFactory> frameCounterUpdateStrategyFactory;
         private readonly byte[] macAddress;
         private long startTime;
-        private NetworkServerConfiguration serverConfiguration;
 
-        protected NetworkServerConfiguration ServerConfiguration { get => this.serverConfiguration; }
+        private LoRaDataRequestHandlerImplementation requestHandlerImplementation;
 
-        protected Mock<ILoRaDeviceFrameCounterUpdateStrategy> FrameCounterUpdateStrategy => this.frameCounterUpdateStrategy;
+        public TestPacketForwarder PacketForwarder { get; }
 
-        protected Mock<ILoRaDeviceFrameCounterUpdateStrategyFactory> FrameCounterUpdateStrategyFactory { get => this.frameCounterUpdateStrategyFactory; }
+        protected Mock<LoRaDeviceAPIServiceBase> LoRaDeviceApi { get; }
 
-        private readonly Mock<ILoRaDeviceRegistry> loRaDeviceRegistry;
+        protected ILoRaDeviceFrameCounterUpdateStrategyFactory FrameCounterUpdateStrategyFactory { get; }
 
-        protected Mock<ILoRaDeviceRegistry> LoRaDeviceRegistry => this.loRaDeviceRegistry;
+        protected NetworkServerConfiguration ServerConfiguration { get; }
+
+        internal TestLoRaDeviceFactory LoRaDeviceFactory { get; }
+
+        protected Mock<ILoRaDeviceClient> LoRaDeviceClient { get; }
 
         public MessageProcessorTestBase()
         {
             this.startTime = DateTimeOffset.UtcNow.Ticks;
 
             this.macAddress = Utility.GetMacAddress();
-            this.serverConfiguration = new NetworkServerConfiguration
+            this.ServerConfiguration = new NetworkServerConfiguration
             {
                 GatewayID = ServerGatewayID,
                 LogToConsole = true,
                 LogLevel = ((int)LogLevel.Debug).ToString(),
             };
 
-            this.frameCounterUpdateStrategy = new Mock<ILoRaDeviceFrameCounterUpdateStrategy>(MockBehavior.Strict);
-            this.frameCounterUpdateStrategyFactory = new Mock<ILoRaDeviceFrameCounterUpdateStrategyFactory>(MockBehavior.Strict);
-            this.loRaDeviceRegistry = new Mock<ILoRaDeviceRegistry>(MockBehavior.Strict);
-            this.loRaDeviceRegistry.Setup(x => x.RegisterDeviceInitializer(It.IsNotNull<ILoRaDeviceInitializer>()));
+            this.PacketForwarder = new TestPacketForwarder();
+            this.LoRaDeviceApi = new Mock<LoRaDeviceAPIServiceBase>(MockBehavior.Strict);
+            this.FrameCounterUpdateStrategyFactory = new LoRaDeviceFrameCounterUpdateStrategyFactory(ServerGatewayID, this.LoRaDeviceApi.Object);
+            this.requestHandlerImplementation = new LoRaDataRequestHandlerImplementation(this.ServerConfiguration, this.FrameCounterUpdateStrategyFactory, new LoRaPayloadDecoder());
+            this.LoRaDeviceClient = new Mock<ILoRaDeviceClient>(MockBehavior.Strict);
+            this.LoRaDeviceFactory = new TestLoRaDeviceFactory(this.ServerConfiguration, this.FrameCounterUpdateStrategyFactory, this.LoRaDeviceClient.Object);
         }
 
         public MemoryCache NewMemoryCache() => new MemoryCache(new MemoryCacheOptions());
+
+        public LoRaDevice CreateLoRaDevice(SimulatedDevice simulatedDevice) => TestUtils.CreateFromSimulatedDevice(simulatedDevice, this.LoRaDeviceClient.Object, this.requestHandlerImplementation);
     }
 }

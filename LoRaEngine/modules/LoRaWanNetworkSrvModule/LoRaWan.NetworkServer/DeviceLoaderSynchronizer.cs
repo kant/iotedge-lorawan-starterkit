@@ -29,7 +29,7 @@ namespace LoRaWan.NetworkServer
         private volatile bool isLoadingDevices;
         private volatile bool loadingDevicesFailed;
         private object queueLock;
-        private volatile List<LoRaRequestContext> queuedRequests;
+        private volatile List<LoRaRequest> queuedRequests;
 
         internal DeviceLoaderSynchronizer(
             string devAddr,
@@ -49,7 +49,7 @@ namespace LoRaWan.NetworkServer
             this.isLoadingDevices = true;
             this.loadingDevicesFailed = false;
             this.queueLock = new object();
-            this.queuedRequests = new List<LoRaRequestContext>();
+            this.queuedRequests = new List<LoRaRequest>();
             this.loading = this.Load().ContinueWith(continuationAction, TaskContinuationOptions.ExecuteSynchronously);
         }
 
@@ -127,16 +127,16 @@ namespace LoRaWan.NetworkServer
 
         private void NotifyQueueItemsDueToError()
         {
-            List<LoRaRequestContext> failedRequests;
+            List<LoRaRequest> failedRequests;
             lock (this.queueLock)
             {
                 failedRequests = this.queuedRequests;
-                this.queuedRequests = new List<LoRaRequestContext>();
+                this.queuedRequests = new List<LoRaRequest>();
                 this.loadingDevicesFailed = true;
                 this.isLoadingDevices = false;
             }
 
-            failedRequests.ForEach(x => x.NotifyFailed(null, LoRaDeviceRequestQueueFailedReason.ApplicationError));
+            failedRequests.ForEach(x => x.NotifyFailed(null, LoRaDeviceRequestFailedReason.ApplicationError));
         }
 
         private void DispatchQueuedItems(List<LoRaDevice> devices)
@@ -148,9 +148,9 @@ namespace LoRaWan.NetworkServer
                 {
                     foreach (var device in devices)
                     {
-                        if (queuedItem.Request.Payload.CheckMic(device.NwkSKey))
+                        if (queuedItem.Payload.CheckMic(device.NwkSKey))
                         {
-                            device.QueueRequest(queuedItem);
+                            device.Queue(queuedItem);
                             requestHandled = true;
                             break;
                         }
@@ -159,7 +159,7 @@ namespace LoRaWan.NetworkServer
 
                 if (!requestHandled)
                 {
-                    var failedReason = devices.Count > 0 ? LoRaDeviceRequestQueueFailedReason.NotMatchingDeviceByMicCheck : LoRaDeviceRequestQueueFailedReason.NotMatchingDeviceByDevAddr;
+                    var failedReason = devices.Count > 0 ? LoRaDeviceRequestFailedReason.NotMatchingDeviceByMicCheck : LoRaDeviceRequestFailedReason.NotMatchingDeviceByDevAddr;
                     queuedItem.NotifyFailed(null, failedReason);
                 }
             }
@@ -167,7 +167,7 @@ namespace LoRaWan.NetworkServer
             this.queuedRequests.Clear();
         }
 
-        public void Queue(LoRaRequestContext requestContext)
+        public void Queue(LoRaRequest request)
         {
             var localIsLoadingDevices = this.isLoadingDevices;
             if (localIsLoadingDevices)
@@ -180,7 +180,7 @@ namespace LoRaWan.NetworkServer
                     }
                     else
                     {
-                        this.queuedRequests.Add(requestContext);
+                        this.queuedRequests.Add(request);
                     }
                 }
             }
@@ -189,18 +189,18 @@ namespace LoRaWan.NetworkServer
             {
                 foreach (var device in this.destinationDictionary.Values)
                 {
-                    if (requestContext.Request.Payload.CheckMic(device.NwkSKey))
+                    if (request.Payload.CheckMic(device.NwkSKey))
                     {
-                        device.QueueRequest(requestContext);
+                        device.Queue(request);
                         return;
                     }
                 }
 
                 // not handled, raised failed event
                 var failedReason =
-                    this.loadingDevicesFailed ? LoRaDeviceRequestQueueFailedReason.ApplicationError :
-                    this.destinationDictionary.Count > 0 ? LoRaDeviceRequestQueueFailedReason.NotMatchingDeviceByMicCheck : LoRaDeviceRequestQueueFailedReason.NotMatchingDeviceByDevAddr;
-                requestContext.NotifyFailed(null, failedReason);
+                    this.loadingDevicesFailed ? LoRaDeviceRequestFailedReason.ApplicationError :
+                    this.destinationDictionary.Count > 0 ? LoRaDeviceRequestFailedReason.NotMatchingDeviceByMicCheck : LoRaDeviceRequestFailedReason.NotMatchingDeviceByDevAddr;
+                request.NotifyFailed(null, failedReason);
             }
         }
 

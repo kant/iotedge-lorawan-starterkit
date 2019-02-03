@@ -184,20 +184,17 @@ namespace LoRaWan.NetworkServer.Test
                         .ContinueWith((a) => new SearchDevicesResult(new IoTHubDeviceInfo(devAddr, devEUI, "abc").AsList()));
                 });
 
-            // using factory to create mock of
-            var loRaDeviceFactory = new TestLoRaDeviceFactory(loRaDeviceClient.Object);
+            var frameCounterUpdateStrategyFactory = new LoRaDeviceFrameCounterUpdateStrategyFactory(this.ServerConfiguration.GatewayID, loRaDeviceApi.Object);
+            var loRaDeviceFactory = new TestLoRaDeviceFactory(this.ServerConfiguration, frameCounterUpdateStrategyFactory, loRaDeviceClient.Object);
 
             var memoryCache = new MemoryCache(new MemoryCacheOptions());
             var deviceRegistry = new LoRaDeviceRegistry(this.ServerConfiguration, memoryCache, loRaDeviceApi.Object, loRaDeviceFactory);
-
-            var frameCounterUpdateStrategyFactory = new LoRaDeviceFrameCounterUpdateStrategyFactory(this.ServerConfiguration.GatewayID, loRaDeviceApi.Object);
 
             // Send to message processor
             var messageProcessor = new MessageProcessor(
                 this.ServerConfiguration,
                 deviceRegistry,
-                frameCounterUpdateStrategyFactory,
-                new LoRaPayloadDecoder());
+                frameCounterUpdateStrategyFactory);
 
             // sends unconfirmed message
             var unconfirmedMessage1 = simulatedDevice.CreateUnconfirmedMessageUplink("1", fcnt: 1).Rxpk[0];
@@ -231,6 +228,11 @@ namespace LoRaWan.NetworkServer.Test
 
             // Ensure that all telemetry was sent
             Assert.Equal(3, sentTelemetry.Count);
+
+            // Ensure data was sent in order
+            Assert.Equal(1, sentTelemetry[0].Fcnt);
+            Assert.Equal(2, sentTelemetry[1].Fcnt);
+            Assert.Equal(3, sentTelemetry[2].Fcnt);
 
             // Ensure that the device twins were saved
             if (shouldSaveTwin)

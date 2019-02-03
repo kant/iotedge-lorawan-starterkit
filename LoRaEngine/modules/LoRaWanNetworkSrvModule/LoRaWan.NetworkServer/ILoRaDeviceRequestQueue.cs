@@ -9,7 +9,7 @@ namespace LoRaWan.NetworkServer
     /// <summary>
     /// Defines delegate that handles a request not being processed
     /// </summary>
-    public delegate void FailedLoRaDeviceRequestHandler(LoRaRequest request, LoRaDevice loRaDevice, LoRaDeviceRequestQueueFailedReason reason);
+    public delegate void FailedLoRaDeviceRequestHandler(LoRaRequest request, LoRaDevice loRaDevice, LoRaDeviceRequestFailedReason reason);
 
     /// <summary>
     /// Defines delegate that handles a request being processed
@@ -24,6 +24,6 @@ namespace LoRaWan.NetworkServer
         /// <summary>
         /// Queues a request
         /// </summary>
-        void Queue(LoRaRequestContext requestContext);
+        void Queue(LoRaRequest request);
     }
 }

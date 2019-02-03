@@ -6,19 +6,23 @@ namespace LoRaWan.NetworkServer
     using System;
     using LoRaTools.LoRaMessage;
     using LoRaTools.LoRaPhysical;
+    using LoRaTools.Regions;
 
     public class LoRaRequest
     {
-        private FailedLoRaDeviceRequestHandler failedHandler;
-        private SucceededLoRaDeviceRequestHandler succeededHandler;
+        public virtual Rxpk Rxpk { get; }
 
-        public Rxpk Rxpk { get; }
+        public virtual LoRaPayload Payload { get; private set; }
 
-        public LoRaPayload Payload { get; private set; }
+        public virtual IPacketForwarder PacketForwarder { get; }
 
-        public IPacketForwarder PacketForwarder { get; }
+        public virtual DateTime StartTime { get; }
 
-        public DateTime StartTime { get; }
+        public virtual Region LoRaRegion { get; private set; }
+
+        protected LoRaRequest()
+        {
+        }
 
         protected LoRaRequest(LoRaPayload payload)
         {
@@ -28,34 +32,25 @@ namespace LoRaWan.NetworkServer
         public LoRaRequest(
             Rxpk rxpk,
             IPacketForwarder packetForwarder,
-            DateTime startTime,
-            FailedLoRaDeviceRequestHandler failedHandler = null,
-            SucceededLoRaDeviceRequestHandler succeededHandler = null)
+            DateTime startTime)
         {
             this.Rxpk = rxpk;
-            // this.Payload = payload;
             this.PacketForwarder = packetForwarder;
             this.StartTime = startTime;
-            this.failedHandler = failedHandler;
-            this.succeededHandler = succeededHandler;
         }
 
-        protected void SetFailedHandler(FailedLoRaDeviceRequestHandler handler) => this.failedHandler = handler;
+        internal void NotifyFailed(LoRaDevice loRaDevice, Exception error) => this.NotifyFailed(loRaDevice, LoRaDeviceRequestFailedReason.ApplicationError, error);
 
-        protected void SetSucceededHandler(SucceededLoRaDeviceRequestHandler handler) => this.succeededHandler = handler;
-
-        public void NotifyFailed(LoRaDevice loRaDevice, Exception error) => this.NotifyFailed(loRaDevice, LoRaDeviceRequestQueueFailedReason.ApplicationError);
-
-        public void NotifyFailed(LoRaDevice loRaDevice, LoRaDeviceRequestQueueFailedReason reason)
+        public virtual void NotifyFailed(LoRaDevice loRaDevice, LoRaDeviceRequestFailedReason reason, Exception exception = null)
         {
-            this.failedHandler?.Invoke(this, loRaDevice, reason);
         }
 
-        public void NotifySucceeded(LoRaDevice loRaDevice, DownlinkPktFwdMessage downlink)
+        public virtual void NotifySucceeded(LoRaDevice loRaDevice, DownlinkPktFwdMessage downlink)
         {
-            this.succeededHandler?.Invoke(this, loRaDevice, downlink);
         }
 
         internal void SetPayload(LoRaPayload loRaPayload) => this.Payload = loRaPayload;
+
+        internal void SetRegion(Region loRaRegion) => this.LoRaRegion = loRaRegion;
     }
 }

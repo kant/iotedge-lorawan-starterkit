@@ -27,7 +27,7 @@ namespace LoRaWan.NetworkServer.Test
 
         public LoRaDevice LoRaDevice { get; private set; }
 
-        public LoRaDeviceRequestQueueFailedReason ProcessingFailedReason { get; private set; }
+        public LoRaDeviceRequestFailedReason ProcessingFailedReason { get; private set; }
 
         public DownlinkPktFwdMessage ResponseDownlink { get; private set; }
 
@@ -37,31 +37,31 @@ namespace LoRaWan.NetworkServer.Test
             : base(payload)
         {
             this.complete = new SemaphoreSlim(0);
-            this.SetFailedHandler(this.OnFailed);
-            this.SetSucceededHandler(this.OnSucceeded);
         }
 
         public WaitableLoRaRequest(Rxpk rxpk, IPacketForwarder packetForwarder)
             : base(rxpk, packetForwarder, DateTime.UtcNow)
         {
             this.complete = new SemaphoreSlim(0);
-            this.SetFailedHandler(this.OnFailed);
-            this.SetSucceededHandler(this.OnSucceeded);
         }
 
-        private void OnSucceeded(LoRaRequest request, LoRaDevice loRaDevice, DownlinkPktFwdMessage downlink)
+        public override void NotifyFailed(LoRaDevice loRaDevice, LoRaDeviceRequestFailedReason reason, Exception exception = null)
         {
-            this.LoRaDevice = loRaDevice;
-            this.ResponseDownlink = downlink;
-            this.ProcessingSucceeded = true;
-            this.complete.Release();
-        }
+            base.NotifyFailed(loRaDevice, reason, exception);
 
-        private void OnFailed(LoRaRequest request, LoRaDevice loRaDevice, LoRaDeviceRequestQueueFailedReason reason)
-        {
             this.ProcessingFailed = true;
             this.LoRaDevice = loRaDevice;
             this.ProcessingFailedReason = reason;
+            this.complete.Release();
+        }
+
+        public override void NotifySucceeded(LoRaDevice loRaDevice, DownlinkPktFwdMessage downlink)
+        {
+            base.NotifySucceeded(loRaDevice, downlink);
+
+            this.LoRaDevice = loRaDevice;
+            this.ResponseDownlink = downlink;
+            this.ProcessingSucceeded = true;
             this.complete.Release();
         }
 

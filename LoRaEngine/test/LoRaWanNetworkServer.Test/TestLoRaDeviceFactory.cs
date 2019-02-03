@@ -8,18 +8,28 @@ namespace LoRaWan.NetworkServer.Test
     internal class TestLoRaDeviceFactory : ILoRaDeviceFactory
     {
         private readonly ILoRaDeviceClient loRaDeviceClient;
+        private readonly NetworkServerConfiguration configuration;
+        private readonly ILoRaDeviceFrameCounterUpdateStrategyFactory frameCounterUpdateStrategyFactory;
 
-        public TestLoRaDeviceFactory(ILoRaDeviceClient loRaDeviceClient)
+        public TestLoRaDeviceFactory(
+            NetworkServerConfiguration configuration,
+            ILoRaDeviceFrameCounterUpdateStrategyFactory frameCounterUpdateStrategyFactory,
+            ILoRaDeviceClient loRaDeviceClient)
         {
+            this.configuration = configuration;
+            this.frameCounterUpdateStrategyFactory = frameCounterUpdateStrategyFactory;
             this.loRaDeviceClient = loRaDeviceClient;
         }
 
         public LoRaDevice Create(IoTHubDeviceInfo deviceInfo)
         {
-            return new LoRaDevice(
+            var loRaDevice = new LoRaDevice(
                 deviceInfo.DevAddr,
                 deviceInfo.DevEUI,
                 this.loRaDeviceClient);
+
+            loRaDevice.SetRequestHandler(new LoRaDataRequestHandlerImplementation(this.configuration, this.frameCounterUpdateStrategyFactory, new LoRaPayloadDecoder()));
+            return loRaDevice;
         }
     }
 }
