@@ -14,7 +14,8 @@ namespace LoRaWan.NetworkServer.Test
     {
         internal static LoRaDevice CreateFromSimulatedDevice(
             SimulatedDevice simulatedDevice,
-            ILoRaDeviceClient loRaDeviceClient)
+            ILoRaDeviceClient loRaDeviceClient,
+            LoRaDataRequestHandlerImplementation requestHandler = null)
         {
             var result = new LoRaDevice(simulatedDevice.LoRaDevice.DevAddr, simulatedDevice.LoRaDevice.DeviceID, loRaDeviceClient)
             {
@@ -28,6 +29,9 @@ namespace LoRaWan.NetworkServer.Test
             };
             result.SetFcntDown(simulatedDevice.FrmCntDown);
             result.SetFcntUp(simulatedDevice.FrmCntUp);
+
+            if (requestHandler != null)
+                result.SetRequestHandler(requestHandler);
 
             return result;
         }

@@ -67,11 +67,68 @@ namespace LoRaWan.NetworkServer
             });
         }
 
+        DeviceLoaderSynchronizer GetOrCreateLoadingDevicesRequestQueue(string devAddr)
+        {
+            return this.cache.GetOrCreate<DeviceLoaderSynchronizer>(
+                $"devaddrloader:{devAddr}",
+                (ce) =>
+                {
+                    var cts = new CancellationTokenSource();
+                    ce.ExpirationTokens.Add(new CancellationChangeToken(cts.Token));
+
+                    var destinationDictionary = this.InternalGetCachedDevicesForDevAddr(devAddr);
+                    var originalDeviceCount = destinationDictionary.Count;
+                    var loader = new DeviceLoaderSynchronizer(
+                        devAddr,
+                        this.loRaDeviceAPIService,
+                        this.deviceFactory,
+                        destinationDictionary,
+                        this.initializers,
+                        this.configuration,
+                        (t) =>
+                        {
+                            // If the operation to load was successfull and we retrieve devices
+                            // wait for 30 seconds for pending requests to go thorugh and avoid additional calls
+                            if (t.IsCompletedSuccessfully && destinationDictionary.Count > originalDeviceCount)
+                            {
+                                // remove from cache after 30 seconds
+                                cts.CancelAfter(TimeSpan.FromSeconds(30));
+                            }
+                            else
+                            {
+                                // remove from cache now
+                                cts.Cancel();
+                            }
+                        });
+
+                    return loader;
+                });
+        }
+
+        public ILoRaDeviceRequestQueue GetLoRaRequestQueue(LoRaRequest request)
+        {
+            var devAddr = ConversionHelper.ByteArrayToString(request.Payload.DevAddr);
+            var devicesMatchingDevAddr = this.InternalGetCachedDevicesForDevAddr(devAddr);
+
+            // If already in cache, return quickly
+            if (devicesMatchingDevAddr.Count > 0)
+            {
+                var cachedMatchingDevice = devicesMatchingDevAddr.Values.FirstOrDefault(x => this.IsValidDeviceForPayload(x, (LoRaPayloadData)request.Payload, logError: false) && x.IsOurDevice);
+                if (cachedMatchingDevice != null)
+                {
+                    Logger.Log(cachedMatchingDevice.DevEUI, "device in cache", LogLevel.Debug);
+                    return cachedMatchingDevice;
+                }
+            }
+
+            // not in cache, need to make a single search by dev addr
+            return this.GetOrCreateLoadingDevicesRequestQueue(devAddr);
+        }
+
         /// <summary>
         /// Finds a device based on the <see cref="LoRaPayloadData"/>
         /// </summary>
-        /// <param name="loraPayload"></param>
-        /// <returns></returns>
+        [Obsolete("replaced by queue")]
         public async Task<LoRaDevice> GetDeviceForPayloadAsync(LoRaPayloadData loraPayload)
         {
             var devAddr = ConversionHelper.ByteArrayToString(loraPayload.DevAddr.ToArray());

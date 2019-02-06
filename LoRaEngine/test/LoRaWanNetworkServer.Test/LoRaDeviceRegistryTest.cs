@@ -48,6 +48,7 @@ namespace LoRaWan.NetworkServer.Test
                 .Throws(new Exception());
             var target = new LoRaDeviceRegistry(this.serverConfiguration, this.cache, apiService.Object, this.loraDeviceFactoryMock.Object);
 
+            var request = new WaitableLoRaRequest(payload);
             var actual = await target.GetDeviceForPayloadAsync(payload);
             Assert.Null(actual);
 
